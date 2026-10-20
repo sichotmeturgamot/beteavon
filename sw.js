@@ -1,5 +1,5 @@
 // גרסה — להעלות מספר בכל עדכון של האפליקציה
-const CACHE = "kalori-v1";
+const CACHE = "beteavon-v2";
 const FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
