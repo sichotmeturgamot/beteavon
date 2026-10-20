@@ -143,6 +143,12 @@ label.f{display:block;font-size:14px;color:var(--soft);margin:12px 0 6px}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .chips button{background:#fff;border:1.5px solid var(--line);border-radius:999px;padding:8px 14px;font-size:14px;transition:.15s}
 .chips button.on{background:var(--coral);border-color:var(--coral);color:#fff}
+.pantry{background:var(--card);border-radius:18px;padding:14px;margin-top:12px;box-shadow:0 2px 12px rgba(160,90,60,.08)}
+.pantry .pc{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.pantry .pc span{background:#fffaf7;border:1.5px solid var(--line);border-radius:999px;padding:5px 10px;font-size:13px;display:inline-flex;align-items:center;gap:4px}
+.pantry .pc span button{color:#d2544a;font-size:13px;padding:0 2px}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:15px}
+.toggle input{width:22px;height:22px;accent-color:var(--coral)}
 .idea{background:var(--card);border-radius:18px;padding:14px;margin-bottom:12px;box-shadow:0 2px 12px rgba(160,90,60,.08)}
 .idea h3{margin:0;font-size:17px}
 .idea .meta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
@@ -256,6 +262,8 @@ nav.tabs .plus{width:62px;height:62px;border-radius:50%;background:linear-gradie
       </div>
       <input type="file" id="fCam" accept="image/*" capture="environment" class="hidden">
       <input type="file" id="fGal" accept="image/*" class="hidden">
+      <input type="file" id="fPanCam" accept="image/*" capture="environment" class="hidden">
+      <input type="file" id="fPanGal" accept="image/*" multiple class="hidden">
       <div class="small muted" style="margin-top:10px">💡 מוצר ארוז? צלמי גם את העטיפה — ה-AI יקרא ממנה את הערכים בעצמו (עד 3 תמונות).</div>
       <div class="thumbs hidden" id="thumbs"></div>
 
@@ -761,8 +769,49 @@ $("#btnAnalyze").onclick = async () => {
 
 // ================= הצעות ארוחה =================
 const WISHES = ["מהיר", "חלבי", "בשרי", "פרווה", "מתוק", "קליל", "משביע", "עשיר בחלבון"];
-let SUG = { wishes: [], text: "", res: null };
-$("#sugBtn").onclick = () => { SUG.res = null; openSuggest(); };
+let SUG = { wishes: [], text: "", res: null, view: "main", only: true, shots: [] };
+let PANTRY = { items: [], updated: null };
+try { PANTRY = { ...PANTRY, ...JSON.parse(localStorage.getItem("kalori.pantry") || "{}") }; } catch {}
+const savePantry = () => { try { localStorage.setItem("kalori.pantry", JSON.stringify(PANTRY)); } catch {} };
+function pantryAge() {
+  if (!PANTRY.updated) return "";
+  const d = Math.round((fromDk(todayKey()) - fromDk(PANTRY.updated)) / 864e5);
+  return d <= 0 ? "עודכן היום" : d === 1 ? "עודכן אתמול" : `עודכן לפני ${d} ימים`;
+}
+function mergePantry(list) {
+  const have = new Set(PANTRY.items.map(i => i.name.trim()));
+  let added = 0;
+  list.forEach(i => { if (!have.has(i.name.trim())) { PANTRY.items.push(i); have.add(i.name.trim()); added++; } });
+  PANTRY.updated = todayKey(); savePantry();
+  return added;
+}
+const panLabel = i => i.name + (i.qty ? ` (${i.qty})` : "");
+$("#sugBtn").onclick = () => { SUG.res = null; SUG.view = "main"; openSuggest(); };
+["#fPanCam", "#fPanGal"].forEach(id => $(id).onchange = async e => {
+  const files = [...e.target.files]; e.target.value = "";
+  for (const f of files) {
+    if (SUG.shots.length >= 6) { toast("אפשר עד 6 תמונות בכל פעם"); break; }
+    try { SUG.shots.push(await toJpeg(f, 1024, 0.8)); } catch {}
+  }
+  renderSuggest();
+});
+async function scanPantry() {
+  if (!S.url || !S.code) { closeEditor(); toast("צריך קודם להגדיר חיבור במסך ההגדרות"); show("set"); return; }
+  renderSuggest("pantry");
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 150000);
+  try {
+    const r = await fetch(S.url, { method: "POST", headers: { "Content-Type": "application/json", "X-App-Code": S.code }, signal: ctl.signal,
+      body: JSON.stringify({ mode: "pantry", images: SUG.shots.map(x => x.split(",")[1]) }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "שגיאה בשרת (" + r.status + ")");
+    const n = mergePantry(data.items || []);
+    SUG.shots = [];
+    toast(n ? `נוספו ${n} מצרכים 🧺` : "לא נמצאו מצרכים חדשים");
+  } catch (e) {
+    toast(e.name === "AbortError" ? "לקח יותר מדי זמן, נסי שוב" : (e.message || "משהו השתבש"));
+  } finally { clearTimeout(to); }
+  if (!$("#sheet").classList.contains("hidden")) renderSuggest();
+}
 function openSuggest() {
   renderSuggest();
   $("#sheet").classList.remove("hidden"); document.body.style.overflow = "hidden";
@@ -778,8 +827,21 @@ function renderSuggest(loading) {
     <div class="totals" style="margin-top:12px">
       <div><b>${Math.max(0, rem.kcal)}</b><span>קל׳ נשארו</span></div><div><b>${Math.max(0, rem.protein)}</b><span>חלבון</span></div>
       <div><b>${Math.max(0, rem.carbs)}</b><span>פחמימות</span></div><div><b>${Math.max(0, rem.fat)}</b><span>שומן</span></div></div>`;
-  if (loading) {
+  if (loading === "pantry") {
+    h += `<div class="loading"><div class="plate">🧺</div><div class="lt">מזהה את המצרכים בתמונות…</div></div>`;
+  } else if (loading) {
     h += `<div class="loading"><div class="plate">🍳</div><div class="lt">חושבת על משהו טעים…</div></div>`;
+  } else if (SUG.view === "pantry") {
+    h += `<div class="pantry"><h2 style="margin:0">🧺 המצרכים שלי</h2>
+      <div class="small muted" style="margin-top:4px">${PANTRY.items.length} מצרכים${PANTRY.updated ? " · " + pantryAge() : ""}</div>
+      ${SUG.shots.length ? `<div class="thumbs" style="margin-top:10px">${SUG.shots.map((src, i) => `<div class="th"><img src="${src}" alt=""><button data-rs="${i}" aria-label="הסרה">✕</button></div>`).join("")}</div>
+        <div style="margin-top:10px"><button class="btn" id="pnScan">✨ זיהוי ${SUG.shots.length} תמונות</button></div>` : ""}
+      <div class="grid2" style="margin-top:10px"><button class="btn sec" id="pnCam">📸 צילום</button><button class="btn sec" id="pnGal">🖼️ מהגלריה</button></div>
+      <div class="small muted" style="margin-top:6px">אפשר עד 6 תמונות: מקרר, מקפיא, ארונות.</div>
+      <div class="pc">${PANTRY.items.map((i, n) => `<span>${esc(panLabel(i))}<button data-del="${n}" aria-label="הסרה">✕</button></span>`).join("") || `<span class="muted">עוד אין מצרכים</span>`}</div>
+      <div class="row"><input type="text" id="pnAdd" placeholder="הוספה ידנית, למשל: אורז"><button class="btn sec" style="width:auto;padding:12px 16px" id="pnAddBtn">+</button></div>
+      ${PANTRY.items.length ? `<button class="link" id="pnClear">ניקוי כל הרשימה</button>` : ""}</div>
+      <div style="margin-top:12px"><button class="btn mint" id="pnDone">סיום ✓</button></div>`;
   } else if (SUG.res) {
     const r = SUG.res;
     if (r.message) h += `<div class="tip">💬 ${esc(r.message)}</div>`;
@@ -794,10 +856,15 @@ function renderSuggest(loading) {
     });
     h += `<button class="btn sec" id="sgAgain">🔄 הצעות אחרות</button><button class="link" id="sgBack">שינוי העדפות</button>`;
   } else {
-    h += `<label class="f">בא לי… (לא חובה)</label>
+    h += `<div class="pantry"><div class="row between"><b>🧺 המצרכים שלי</b><button class="small" style="color:var(--coral);font-weight:500" id="pnOpen">${PANTRY.items.length ? "עריכה / צילום" : "📸 צילום מצרכים"}</button></div>
+      ${PANTRY.items.length ? `<div class="small muted" style="margin-top:4px">${PANTRY.items.length} מצרכים · ${pantryAge()}</div>
+        <div class="pc">${PANTRY.items.slice(0, 14).map(i => `<span>${esc(i.name)}</span>`).join("")}${PANTRY.items.length > 14 ? `<span>+${PANTRY.items.length - 14}</span>` : ""}</div>
+        <label class="toggle">רק ממה שיש בבית<input type="checkbox" id="pnOnly" ${SUG.only ? "checked" : ""}></label>`
+      : `<div class="small muted" style="margin-top:6px">צלמי את המקרר והארונות, וההצעות ייבנו ממה שיש בבית.</div>`}</div>
+      <label class="f">בא לי… (לא חובה)</label>
       <div class="chips">${WISHES.map(w => `<button data-w="${w}" class="${SUG.wishes.includes(w) ? "on" : ""}">${w}</button>`).join("")}</div>
-      <label class="f">מה יש בבית / משהו נוסף (לא חובה)</label>
-      <textarea id="sgText" placeholder="למשל: יש ביצים, טונה וירקות">${esc(SUG.text)}</textarea>
+      <label class="f">${PANTRY.items.length ? "משהו נוסף (לא חובה)" : "מה יש בבית / משהו נוסף (לא חובה)"}</label>
+      <textarea id="sgText" placeholder="${PANTRY.items.length ? "למשל: בלי חריף, משהו חם" : "למשל: יש ביצים, טונה וירקות"}">${esc(SUG.text)}</textarea>
       <div style="margin-top:14px"><button class="btn" id="sgGo">✨ הציעי לי</button></div>`;
   }
   $("#sheetIn").innerHTML = h;
@@ -807,6 +874,19 @@ function renderSuggest(loading) {
     b.classList.toggle("on");
   });
   const ta = $("#sgText"); if (ta) ta.oninput = () => SUG.text = ta.value;
+  const on = (id, f) => { const el = $(id); if (el) el.onclick = f; };
+  on("#pnOpen", () => { SUG.view = "pantry"; renderSuggest(); });
+  on("#pnDone", () => { SUG.view = "main"; SUG.shots = []; renderSuggest(); });
+  on("#pnCam", () => $("#fPanCam").click());
+  on("#pnGal", () => $("#fPanGal").click());
+  on("#pnScan", scanPantry);
+  on("#pnClear", () => { if (confirm("לנקות את כל רשימת המצרכים?")) { PANTRY = { items: [], updated: null }; savePantry(); renderSuggest(); } });
+  const addP = () => { const v = $("#pnAdd").value.trim(); if (!v) return; mergePantry([{ name: v, qty: "", kashrut: "" }]); renderSuggest(); setTimeout(() => $("#pnAdd") && $("#pnAdd").focus(), 50); };
+  on("#pnAddBtn", addP);
+  const pa = $("#pnAdd"); if (pa) pa.onkeydown = e => { if (e.key === "Enter") addP(); };
+  const po = $("#pnOnly"); if (po) po.onchange = () => SUG.only = po.checked;
+  $("#sheetIn").querySelectorAll("[data-del]").forEach(b => b.onclick = () => { PANTRY.items.splice(+b.dataset.del, 1); savePantry(); renderSuggest(); });
+  $("#sheetIn").querySelectorAll("[data-rs]").forEach(b => b.onclick = () => { SUG.shots.splice(+b.dataset.rs, 1); renderSuggest(); });
   const go = $("#sgGo"); if (go) go.onclick = runSuggest;
   const ag = $("#sgAgain"); if (ag) ag.onclick = runSuggest;
   const bk = $("#sgBack"); if (bk) bk.onclick = () => { SUG.res = null; renderSuggest(); };
@@ -830,7 +910,8 @@ async function runSuggest() {
     const r = await fetch(S.url, { method: "POST", headers: { "Content-Type": "application/json", "X-App-Code": S.code }, signal: ctl.signal,
       body: JSON.stringify({ mode: "suggest", now: `${pad(now.getHours())}:${pad(now.getMinutes())}`, mealType: autoType(),
         remaining: remainingNow(), goals: { kcal: S.kcal, protein: S.protein, carbs: S.carbs, fat: S.fat },
-        waitHours: S.wait, today, favorites, wishes: SUG.wishes, text: SUG.text }) });
+        waitHours: S.wait, today, favorites, wishes: SUG.wishes, text: SUG.text,
+        pantry: PANTRY.items.map(panLabel), onlyPantry: SUG.only && PANTRY.items.length > 0 }) });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || "שגיאה בשרת (" + r.status + ")");
     if (!data.ideas || !data.ideas.length) throw new Error("לא התקבלו הצעות, נסי שוב");
