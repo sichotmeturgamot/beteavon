@@ -672,6 +672,17 @@ function blankMeal(source) {
 }
 $("#btnManual").onclick = () => { const m = blankMeal("manual"); m.items = [{ name:"", portion:"", kcal:0, protein:0, carbs:0, fat:0 }]; openEditor(m); };
 
+// מאכלים שרוחלה כבר שמרה (ותיקנה) — נשלחים ל-AI כדי שילמד מהערכים שלה
+function knownFoods() {
+  const seen = new Set(), out = [];
+  [...MEALS].sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time)).forEach(m => m.items.forEach(it => {
+    const k = String(it.name || "").trim().toLowerCase();
+    if (!k || seen.has(k) || out.length >= 60) return;
+    seen.add(k);
+    out.push(`${it.name} | ${it.portion || "-"} | ${r0(it.kcal)} kcal, ${r1(it.protein)}p, ${r1(it.carbs)}c, ${r1(it.fat)}f`);
+  }));
+  return out;
+}
 const LOAD_TXT = ["מסתכלת על הצלחת…", "מזהה את המרכיבים…", "מעריכה כמויות…", "מחשבת ערכים…", "כמעט מוכן ✨"];
 $("#btnAnalyze").onclick = async () => {
   const text = $("#mealText").value.trim();
@@ -680,9 +691,9 @@ $("#btnAnalyze").onclick = async () => {
   $("#addForm").classList.add("hidden"); $("#loading").classList.remove("hidden");
   let i = 0; $("#loadTxt").textContent = LOAD_TXT[0];
   const tick = setInterval(() => { i = Math.min(i + 1, LOAD_TXT.length - 1); $("#loadTxt").textContent = LOAD_TXT[i]; }, 2200);
-  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 75000);
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 100000);
   try {
-    const body = { text };
+    const body = { text, known: knownFoods() };
     if (IMG) { body.image = IMG.split(",")[1]; body.media_type = "image/jpeg"; }
     const r = await fetch(S.url, { method: "POST", headers: { "Content-Type": "application/json", "X-App-Code": S.code }, body: JSON.stringify(body), signal: ctl.signal });
     const data = await r.json().catch(() => ({}));

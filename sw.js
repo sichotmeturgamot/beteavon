@@ -1,6 +1,6 @@
 // גרסה — להעלות מספר בכל עדכון של האפליקציה
 // חשוב: כל האפליקציות באותו חשבון גיטהב חולקות מטמון, לכן מוחקים רק מטמון שמתחיל ב-"beteavon-"
-const CACHE = "beteavon-v3";
+const CACHE = "beteavon-v4";
 const FILES = ["./", "index.html", "manifest.json", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
