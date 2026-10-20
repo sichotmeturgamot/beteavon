@@ -134,6 +134,23 @@ label.f{display:block;font-size:14px;color:var(--soft);margin:12px 0 6px}
 .scale{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}
 .scale button{background:#fff;border:1.5px solid var(--line);border-radius:999px;padding:6px 12px;font-size:14px}
 
+/* suggest */
+.sugbtn{display:flex;align-items:center;gap:14px;width:100%;text-align:right;background:linear-gradient(135deg,#fff3e8,#fff9f3);border:1.5px solid #ffe0cc}
+.sugbtn .e{font-size:34px}
+.sugbtn b{display:block;font-size:17px}
+.sugbtn span{font-size:13px;color:var(--soft)}
+.sugbtn .go{margin-inline-start:auto;font-size:22px;color:var(--coral)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chips button{background:#fff;border:1.5px solid var(--line);border-radius:999px;padding:8px 14px;font-size:14px;transition:.15s}
+.chips button.on{background:var(--coral);border-color:var(--coral);color:#fff}
+.idea{background:var(--card);border-radius:18px;padding:14px;margin-bottom:12px;box-shadow:0 2px 12px rgba(160,90,60,.08)}
+.idea h3{margin:0;font-size:17px}
+.idea .meta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tag{font-size:12px;border-radius:999px;padding:4px 10px;background:#f6efe9;color:#6b5a52;font-weight:500}
+.tag.בשרי{background:#ffe3df;color:#b23f33}.tag.חלבי{background:#dcefff;color:#2a6aa8}.tag.פרווה{background:#d8f4ea;color:#21806a}
+.idea ul{margin:6px 0 10px;padding-inline-start:18px;font-size:14px;color:#5b4b44}
+.idea .why{font-size:14px;color:var(--soft);margin-bottom:10px}
+
 /* week */
 .wchart{display:flex;align-items:flex-end;justify-content:space-between;height:170px;gap:6px;position:relative;margin-top:10px;padding-top:8px}
 .wcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative}
@@ -208,6 +225,12 @@ nav.tabs .plus{width:62px;height:62px;border-radius:50%;background:linear-gradie
       </div>
       <div class="macros" id="macros"></div>
     </div>
+
+    <button class="card sugbtn hidden" id="sugBtn">
+      <span class="e">👩‍🍳</span>
+      <div><b>מה לאכול עכשיו?</b><span id="sugSub">הצעות לפי מה שנשאר להיום</span></div>
+      <span class="go">‹</span>
+    </button>
 
     <div class="card">
       <div class="row between"><h2 style="margin:0">💧 מים</h2><span class="muted small" id="waterTxt"></span></div>
@@ -287,6 +310,8 @@ nav.tabs .plus{width:62px;height:62px;border-radius:50%;background:linear-gradie
         <div><label class="f">פחמימות (גרם)</label><input type="number" inputmode="numeric" id="sCarb"></div>
         <div><label class="f">שומן (גרם)</label><input type="number" inputmode="numeric" id="sFat"></div>
       </div>
+      <label class="f">שעות המתנה מבשרי לחלבי (להצעות ארוחה)</label>
+      <input type="number" inputmode="numeric" id="sWait">
       <label class="f">השם שלי</label>
       <input type="text" id="sName">
       <div style="margin-top:14px"><button class="btn mint" id="saveSet">שמירה</button></div>
@@ -359,7 +384,7 @@ const MOODS = [
 ];
 
 // ================= הגדרות =================
-const DEF = { name:"רוחלה", kcal:1800, protein:90, carbs:200, fat:60, water:8, url:"", code:"" };
+const DEF = { name:"רוחלה", kcal:1800, protein:90, carbs:200, fat:60, water:8, wait:6, url:"", code:"" };
 let S = { ...DEF };
 try { S = { ...DEF, ...JSON.parse(localStorage.getItem("kalori.settings") || "{}") }; } catch {}
 const saveS = () => { try { localStorage.setItem("kalori.settings", JSON.stringify(S)); } catch {} };
@@ -581,6 +606,11 @@ function renderToday() {
   const s = streak();
   $("#streakChip").innerHTML = s >= 2 ? `<span class="chip">🔥 ${s} ימים ברצף</span>` : "";
 
+  // כפתור הצעות
+  const left = r0(S.kcal - t.kcal);
+  $("#sugBtn").classList.toggle("hidden", !isToday);
+  $("#sugSub").textContent = left > 0 ? `נשארו ${left} קל׳ — הצעות כשרות שמתאימות` : "רעיונות קלילים ומזינים";
+
   // ארוחות
   const ms = mealsOn(DAY);
   if (!ms.length) {
@@ -728,6 +758,88 @@ $("#btnAnalyze").onclick = async () => {
     $("#loading").classList.add("hidden"); $("#addForm").classList.remove("hidden");
   }
 };
+
+// ================= הצעות ארוחה =================
+const WISHES = ["מהיר", "חלבי", "בשרי", "פרווה", "מתוק", "קליל", "משביע", "עשיר בחלבון"];
+let SUG = { wishes: [], text: "", res: null };
+$("#sugBtn").onclick = () => { SUG.res = null; openSuggest(); };
+function openSuggest() {
+  renderSuggest();
+  $("#sheet").classList.remove("hidden"); document.body.style.overflow = "hidden";
+}
+function remainingNow() {
+  const t = dayTotals(todayKey());
+  return { kcal: r0(S.kcal - t.kcal), protein: r0(S.protein - t.protein), carbs: r0(S.carbs - t.carbs), fat: r0(S.fat - t.fat) };
+}
+function renderSuggest(loading) {
+  const rem = remainingNow();
+  let h = `<div class="grab"></div>
+    <div class="row between"><h2 style="margin:0">👩‍🍳 מה לאכול עכשיו?</h2><button class="small muted" id="sgClose">סגירה</button></div>
+    <div class="totals" style="margin-top:12px">
+      <div><b>${Math.max(0, rem.kcal)}</b><span>קל׳ נשארו</span></div><div><b>${Math.max(0, rem.protein)}</b><span>חלבון</span></div>
+      <div><b>${Math.max(0, rem.carbs)}</b><span>פחמימות</span></div><div><b>${Math.max(0, rem.fat)}</b><span>שומן</span></div></div>`;
+  if (loading) {
+    h += `<div class="loading"><div class="plate">🍳</div><div class="lt">חושבת על משהו טעים…</div></div>`;
+  } else if (SUG.res) {
+    const r = SUG.res;
+    if (r.message) h += `<div class="tip">💬 ${esc(r.message)}</div>`;
+    r.ideas.forEach((idea, i) => {
+      const tt = sumItems(idea.items);
+      h += `<div class="idea"><h3>${esc(idea.title)}</h3>
+        <div class="meta">${idea.kashrut ? `<span class="tag ${esc(idea.kashrut)}">${esc(idea.kashrut)}</span>` : ""}
+          ${idea.time ? `<span class="tag">⏱️ ${esc(idea.time)}</span>` : ""}<span class="tag">🔥 ${r0(tt.kcal)} קל׳</span><span class="tag">💪 ${r0(tt.protein)} ג׳ חלבון</span></div>
+        ${idea.why ? `<div class="why">${esc(idea.why)}</div>` : ""}
+        <ul>${idea.items.map(it => `<li>${esc(it.name)}${it.portion ? ` — ${esc(it.portion)}` : ""}</li>`).join("")}</ul>
+        <button class="btn mint" data-eat="${i}">אכלתי את זה ✓</button></div>`;
+    });
+    h += `<button class="btn sec" id="sgAgain">🔄 הצעות אחרות</button><button class="link" id="sgBack">שינוי העדפות</button>`;
+  } else {
+    h += `<label class="f">בא לי… (לא חובה)</label>
+      <div class="chips">${WISHES.map(w => `<button data-w="${w}" class="${SUG.wishes.includes(w) ? "on" : ""}">${w}</button>`).join("")}</div>
+      <label class="f">מה יש בבית / משהו נוסף (לא חובה)</label>
+      <textarea id="sgText" placeholder="למשל: יש ביצים, טונה וירקות">${esc(SUG.text)}</textarea>
+      <div style="margin-top:14px"><button class="btn" id="sgGo">✨ הציעי לי</button></div>`;
+  }
+  $("#sheetIn").innerHTML = h;
+  $("#sgClose").onclick = closeEditor;
+  $("#sheetIn").querySelectorAll("[data-w]").forEach(b => b.onclick = () => {
+    const w = b.dataset.w; SUG.wishes = SUG.wishes.includes(w) ? SUG.wishes.filter(x => x !== w) : [...SUG.wishes, w];
+    b.classList.toggle("on");
+  });
+  const ta = $("#sgText"); if (ta) ta.oninput = () => SUG.text = ta.value;
+  const go = $("#sgGo"); if (go) go.onclick = runSuggest;
+  const ag = $("#sgAgain"); if (ag) ag.onclick = runSuggest;
+  const bk = $("#sgBack"); if (bk) bk.onclick = () => { SUG.res = null; renderSuggest(); };
+  $("#sheetIn").querySelectorAll("[data-eat]").forEach(b => b.onclick = () => {
+    const idea = SUG.res.ideas[+b.dataset.eat];
+    const m = blankMeal("suggest"); m.date = todayKey(); m.title = idea.title;
+    m.items = JSON.parse(JSON.stringify(idea.items));
+    openEditor(m);
+  });
+}
+async function runSuggest() {
+  if (!S.url || !S.code) { closeEditor(); toast("צריך קודם להגדיר חיבור במסך ההגדרות"); show("set"); return; }
+  renderSuggest(true);
+  const now = new Date();
+  const today = mealsOn(todayKey()).map(m => `${m.time} — ${m.title}: ${m.items.map(i => i.name).join(", ")}`);
+  const counts = {};
+  MEALS.forEach(m => m.items.forEach(it => { const k = String(it.name || "").trim(); if (k) counts[k] = (counts[k] || 0) + 1; }));
+  const favorites = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 40).map(x => x[0]);
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const r = await fetch(S.url, { method: "POST", headers: { "Content-Type": "application/json", "X-App-Code": S.code }, signal: ctl.signal,
+      body: JSON.stringify({ mode: "suggest", now: `${pad(now.getHours())}:${pad(now.getMinutes())}`, mealType: autoType(),
+        remaining: remainingNow(), goals: { kcal: S.kcal, protein: S.protein, carbs: S.carbs, fat: S.fat },
+        waitHours: S.wait, today, favorites, wishes: SUG.wishes, text: SUG.text }) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "שגיאה בשרת (" + r.status + ")");
+    if (!data.ideas || !data.ideas.length) throw new Error("לא התקבלו הצעות, נסי שוב");
+    SUG.res = data;
+  } catch (e) {
+    toast(e.name === "AbortError" ? "לקח יותר מדי זמן, נסי שוב" : (e.message || "משהו השתבש"));
+  } finally { clearTimeout(to); }
+  if (!$("#sheet").classList.contains("hidden")) renderSuggest();
+}
 
 // ================= עורך ארוחה =================
 let ED = null;
@@ -883,7 +995,7 @@ $("#nextWeek").onclick = () => { if (WEEK < weekStart(todayKey())) { WEEK = addD
 // ================= הגדרות =================
 function renderSet() {
   $("#sKcal").value = S.kcal; $("#sProt").value = S.protein; $("#sCarb").value = S.carbs; $("#sFat").value = S.fat;
-  $("#sWater").value = S.water; $("#sName").value = S.name; $("#sUrl").value = S.url; $("#sCode").value = S.code;
+  $("#sWater").value = S.water; $("#sWait").value = S.wait; $("#sName").value = S.name; $("#sUrl").value = S.url; $("#sCode").value = S.code;
   kcalWarn();
   $("#storeInfo").textContent = `${MEALS.length} ארוחות שמורות בטלפון.`;
 }
@@ -896,7 +1008,7 @@ function kcalWarn() {
 $("#sKcal").oninput = kcalWarn;
 $("#saveSet").onclick = () => {
   S.kcal = r0(num($("#sKcal").value)) || DEF.kcal; S.protein = r0(num($("#sProt").value)); S.carbs = r0(num($("#sCarb").value));
-  S.fat = r0(num($("#sFat").value)); S.water = r0(num($("#sWater").value)) || DEF.water; S.name = $("#sName").value.trim() || DEF.name;
+  S.fat = r0(num($("#sFat").value)); S.water = r0(num($("#sWater").value)) || DEF.water; S.wait = num($("#sWait").value) || DEF.wait; S.name = $("#sName").value.trim() || DEF.name;
   saveS(); toast("היעדים נשמרו 🎯");
 };
 $("#saveConn").onclick = () => { S.url = $("#sUrl").value.trim(); S.code = $("#sCode").value.trim(); saveS(); toast("נשמר ✓"); };
