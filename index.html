@@ -91,6 +91,10 @@ h2{font-size:18px;margin:0 0 12px;font-weight:700}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .photo-btn{display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 10px;border-radius:20px;background:var(--card);box-shadow:var(--shadow);font-weight:500}
 .photo-btn .e{font-size:36px}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.thumbs .th{position:relative}
+.thumbs img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:16px;display:block}
+.thumbs button{position:absolute;top:6px;left:6px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:15px}
 .preview{position:relative;margin-top:12px}
 .preview img{width:100%;border-radius:18px;display:block;max-height:320px;object-fit:cover}
 .preview button{position:absolute;top:10px;left:10px;width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:18px}
@@ -157,6 +161,7 @@ nav.tabs button{display:flex;flex-direction:column;align-items:center;font-size:
 nav.tabs button .e{font-size:22px;filter:grayscale(1);opacity:.6;transition:.2s}
 nav.tabs button.on{color:var(--coral);font-weight:700}
 nav.tabs button.on .e{filter:none;opacity:1;transform:translateY(-2px)}
+nav.tabs button.plus.on{color:#fff}
 nav.tabs .plus{width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,var(--coral),#ff9a7a);color:#fff;font-size:34px;font-weight:400;box-shadow:0 8px 20px rgba(255,122,107,.45);margin-top:-30px;display:flex;align-items:center;justify-content:center}
 
 .toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:12px 18px;border-radius:16px;font-size:15px;z-index:80;opacity:0;transition:.3s;max-width:90vw;text-align:center;pointer-events:none}
@@ -228,7 +233,8 @@ nav.tabs .plus{width:62px;height:62px;border-radius:50%;background:linear-gradie
       </div>
       <input type="file" id="fCam" accept="image/*" capture="environment" class="hidden">
       <input type="file" id="fGal" accept="image/*" class="hidden">
-      <div class="preview hidden" id="preview"><img id="prevImg" alt=""><button id="rmImg" aria-label="הסרת תמונה">✕</button></div>
+      <div class="small muted" style="margin-top:10px">💡 מוצר ארוז? צלמי גם את העטיפה — ה-AI יקרא ממנה את הערכים בעצמו (עד 3 תמונות).</div>
+      <div class="thumbs hidden" id="thumbs"></div>
 
       <label class="f" for="mealText">תיאור (אפשר גם יחד עם תמונה)</label>
       <textarea id="mealText" placeholder="למשל: שתי פרוסות לחם מלא עם חביתה וסלט קטן"></textarea>
@@ -611,7 +617,15 @@ function animateNum(el, to) {
 }
 
 // ================= מסך הוספה =================
-let IMG = null; // dataURL
+let IMGS = []; // dataURLs (עד 3)
+function renderThumbs() {
+  const t = $("#thumbs");
+  t.classList.toggle("hidden", !IMGS.length);
+  t.innerHTML = IMGS.map((src, i) => `<div class="th"><img src="${src}" alt=""><button data-rm="${i}" aria-label="הסרת תמונה">✕</button></div>`).join("");
+  t.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { IMGS.splice(+b.dataset.rm, 1); renderThumbs(); });
+  $("#btnCam").innerHTML = `<span class="e">📸</span>${IMGS.length ? "עוד צילום" : "צילום"}`;
+  $("#btnGal").innerHTML = `<span class="e">🖼️</span>${IMGS.length ? "עוד מהגלריה" : "מהגלריה"}`;
+}
 function renderAdd() {
   $("#setupBanner").classList.toggle("hidden", !!(S.url && S.code));
   // ארוחות חוזרות
@@ -634,10 +648,10 @@ $("#btnCam").onclick = () => $("#fCam").click();
 $("#btnGal").onclick = () => $("#fGal").click();
 ["#fCam", "#fGal"].forEach(id => $(id).onchange = async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  try { IMG = await toJpeg(f, 1280, 0.82); $("#prevImg").src = IMG; $("#preview").classList.remove("hidden"); }
+  if (IMGS.length >= 3) { toast("אפשר עד 3 תמונות"); return; }
+  try { IMGS.push(await toJpeg(f, 1280, 0.82)); renderThumbs(); }
   catch { toast("לא הצלחתי לפתוח את התמונה"); }
 });
-$("#rmImg").onclick = () => { IMG = null; $("#preview").classList.add("hidden"); };
 function toJpeg(file, max, q) {
   return new Promise((res, rej) => {
     const url = URL.createObjectURL(file); const img = new Image();
@@ -686,27 +700,27 @@ function knownFoods() {
 const LOAD_TXT = ["מסתכלת על הצלחת…", "מזהה את המרכיבים…", "מעריכה כמויות…", "מחשבת ערכים…", "כמעט מוכן ✨"];
 $("#btnAnalyze").onclick = async () => {
   const text = $("#mealText").value.trim();
-  if (!IMG && !text) { toast("צלמי או כתבי מה אכלת 🙂"); return; }
+  if (!IMGS.length && !text) { toast("צלמי או כתבי מה אכלת 🙂"); return; }
   if (!S.url || !S.code) { toast("צריך קודם להגדיר חיבור במסך ההגדרות"); show("set"); return; }
   $("#addForm").classList.add("hidden"); $("#loading").classList.remove("hidden");
   let i = 0; $("#loadTxt").textContent = LOAD_TXT[0];
   const tick = setInterval(() => { i = Math.min(i + 1, LOAD_TXT.length - 1); $("#loadTxt").textContent = LOAD_TXT[i]; }, 2200);
-  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 100000);
+  const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 150000);
   try {
     const body = { text, known: knownFoods() };
-    if (IMG) { body.image = IMG.split(",")[1]; body.media_type = "image/jpeg"; }
+    if (IMGS.length) { body.images = IMGS.map(x => x.split(",")[1]); body.media_type = "image/jpeg"; }
     const r = await fetch(S.url, { method: "POST", headers: { "Content-Type": "application/json", "X-App-Code": S.code }, body: JSON.stringify(body), signal: ctl.signal });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || "שגיאה בשרת (" + r.status + ")");
-    const m = blankMeal(IMG ? "photo" : "text");
+    const m = blankMeal(IMGS.length ? "photo" : "text");
     m.title = data.title || text.slice(0, 40);
     m.items = (data.items || []).length ? data.items : [{ name: text || "ארוחה", portion: "", kcal: 0, protein: 0, carbs: 0, fat: 0 }];
     m.note = [data.confidence ? "רמת ביטחון: " + data.confidence : "", data.note].filter(Boolean).join(" · ");
     m.tip = data.tip || "";
     m.desc = text;
-    if (IMG) m.thumb = await shrinkData(IMG, 160, 0.65);
+    if (IMGS.length) m.thumb = await shrinkData(IMGS[0], 160, 0.65);
     openEditor(m);
-    IMG = null; $("#preview").classList.add("hidden"); $("#mealText").value = "";
+    IMGS = []; renderThumbs(); $("#mealText").value = "";
   } catch (e) {
     toast(e.name === "AbortError" ? "לקח יותר מדי זמן, נסי שוב" : (e.message || "משהו השתבש, נסי שוב"));
   } finally {
